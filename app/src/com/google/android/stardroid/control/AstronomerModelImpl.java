@@ -30,6 +30,7 @@ import com.google.android.stardroid.units.RaDec;
 import com.google.android.stardroid.units.Vector3;
 import com.google.android.stardroid.util.Geometry;
 import com.google.android.stardroid.util.MiscUtil;
+import android.hardware.SensorManager;
 
 import java.util.Date;
 
@@ -81,6 +82,15 @@ public class AstronomerModelImpl implements AstronomerModel {
   private LatLong location = new LatLong(0f, 0f);
   private Clock clock = new RealClock();
   private long celestialCoordsLastUpdated = -1;
+  private boolean directVector = false;
+  private Vector3 rotationVector = new Vector3(0, 0, 0);
+  
+  private static class RotMatHelper {
+    // separate this out to support really old versions of android for some reason
+    public static void getRotationMatrixFromVector(float[] rotMat, float[] rotVec) {
+      SensorManager.getRotationMatrixFromVector(rotMat, rotVec);
+    }
+  }
 
   /**
    * The pointing comprises a vector into the phone's screen expressed in
@@ -156,8 +166,20 @@ public class AstronomerModelImpl implements AstronomerModel {
 
   @Override
   public void setPhoneSensorValues(Vector3 acceleration, Vector3 magneticField) {
+    this.directVector = false;
     this.acceleration.assign(acceleration);
     this.magneticField.assign(magneticField);
+  }
+  
+  @Override
+  public void setPhoneRotationVector(Vector3 v) {
+    this.directVector = true;
+    this.rotationVector.assign(v);
+  }
+  
+  @Override
+  public void setPhoneGravity(Vector3 v) {
+    this.acceleration.assign(v);
   }
 
   @Override
@@ -268,23 +290,38 @@ public class AstronomerModelImpl implements AstronomerModel {
    */
   private void calculateLocalNorthAndUpInPhoneCoords() {
     // TODO(johntaylor): we can reduce the number of vector copies done in here.
-    Vector3 down = acceleration.copy();
-    down.normalize();
-    // Magnetic field goes *from* North to South, so reverse it.
-    Vector3 magneticFieldToNorth = magneticField.copy();
-    magneticFieldToNorth.scale(-1);
-    magneticFieldToNorth.normalize();
-    // This is the vector to magnetic North *along the ground*.
-    Vector3 magneticNorthPhone = addVectors(magneticFieldToNorth,
-                                 scaleVector(down, -scalarProduct(magneticFieldToNorth, down)));
-    magneticNorthPhone.normalize();
-    Vector3 upPhone = scaleVector(down, -1);
-    Vector3 magneticEastPhone = vectorProduct(magneticNorthPhone, upPhone);
-
-    // The matrix is orthogonal, so transpose it to find its inverse.
-    // Easiest way to do that is to construct it from row vectors instead
-    // of column vectors.
-    axesPhoneInverseMatrix = new Matrix33(magneticNorthPhone, upPhone, magneticEastPhone, false);
+    if(directVector) {
+      // rotationVector uses earth-relative axes:
+      //   y = component pointing north
+      //   z = component pointing at sky
+      //   x = component pointing y.z (roughly east)
+      // for phone-relative y is up, x is right, z is toward user in default orientation
+      // But it looks like axesPhoneInverseMatrix uses x=north, y=up, z=east for world coordinates
+      //  but standard android for phone coordinates. Hrm.
+      float[] rotMat = new float[9];
+      RotMatHelper.getRotationMatrixFromVector(rotMat, this.rotationVector.toFloatArray());
+      axesPhoneInverseMatrix = new Matrix33(rotMat[3], rotMat[4], rotMat[5],
+                                            rotMat[6], rotMat[7], rotMat[8],
+                                            rotMat[0], rotMat[1], rotMat[2]);
+    } else {
+      Vector3 down = acceleration.copy();
+      down.normalize();
+      // Magnetic field goes *from* North to South, so reverse it.
+      Vector3 magneticFieldToNorth = magneticField.copy();
+      magneticFieldToNorth.scale(-1);
+      magneticFieldToNorth.normalize();
+      // This is the vector to magnetic North *along the ground*.
+      Vector3 magneticNorthPhone = addVectors(magneticFieldToNorth,
+                                   scaleVector(down, -scalarProduct(magneticFieldToNorth, down)));
+      magneticNorthPhone.normalize();
+      Vector3 upPhone = scaleVector(down, -1);
+      Vector3 magneticEastPhone = vectorProduct(magneticNorthPhone, upPhone);
+         
+      // The matrix is orthogonal, so transpose it to find its inverse.
+      // Easiest way to do that is to construct it from row vectors instead
+      // of column vectors.
+      axesPhoneInverseMatrix = new Matrix33(magneticNorthPhone, upPhone, magneticEastPhone, false);
+    }
   }
 
   /**

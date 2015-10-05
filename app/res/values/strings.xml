@@ -404,4 +404,7 @@
     <string name="orionids" translation_description="Meteor Shower">Orionids</string>
     <string name="puppidvelids" translation_description="Meteor Shower">Puppid-Velids</string>
     <string name="ursids" translation_description="Meteor Shower">Ursids</string>
+    
+    <!-- put new strings at the end so we don't have to rebuild the star database -->
+    <string name="use_fused_sensor">Use Fused Sensor</string>
 </resources>

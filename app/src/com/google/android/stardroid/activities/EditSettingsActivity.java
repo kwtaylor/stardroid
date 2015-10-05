@@ -18,6 +18,7 @@ import com.google.android.stardroid.activities.util.ActivityLightLevelChanger;
 import com.google.android.stardroid.activities.util.ActivityLightLevelManager;
 import com.google.android.stardroid.util.Analytics;
 import com.google.android.stardroid.util.MiscUtil;
+import com.google.android.stardroid.StardroidApplication;
 
 import android.app.AlertDialog;
 import android.content.DialogInterface;
@@ -40,7 +41,8 @@ import java.util.List;
 /**
  * Edit the user's preferences.
  */
-public class EditSettingsActivity extends PreferenceActivity {
+public class EditSettingsActivity extends PreferenceActivity 
+    implements OnPreferenceChangeListener{
   /**
    * These must match the keys in the preference_screen.xml file.
    */
@@ -59,6 +61,15 @@ public class EditSettingsActivity extends PreferenceActivity {
         PreferenceManager.getDefaultSharedPreferences(this));
     geocoder = new Geocoder(this);
     addPreferencesFromResource(R.xml.preference_screen);
+    
+    if(!StardroidApplication.getSupportsNewSensors()) {
+      findPreference("fused_sensor").setEnabled(false);
+    }
+    
+    findPreference("sensor_damping").setEnabled(
+      !PreferenceManager.getDefaultSharedPreferences(this).getBoolean("fused_sensor", false));
+    findPreference("fused_sensor").setOnPreferenceChangeListener(this);
+    
     Preference editPreference = findPreference(LOCATION);
     // TODO(johntaylor) if the lat long prefs get changed manually, we should really
     // reset the placename to "" too.
@@ -70,6 +81,13 @@ public class EditSettingsActivity extends PreferenceActivity {
         return success;
       }
     });
+  }
+  
+  public boolean onPreferenceChange(Preference preference, Object newValue) {
+    if (preference.getKey().equals("fused_sensor")) {
+      findPreference("sensor_damping").setEnabled(!newValue.toString().equals("true"));
+    }
+    return true;
   }
 
   @Override

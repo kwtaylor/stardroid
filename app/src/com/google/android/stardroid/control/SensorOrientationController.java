@@ -17,12 +17,15 @@ package com.google.android.stardroid.control;
 import com.google.android.stardroid.util.MiscUtil;
 import com.google.android.stardroid.util.smoothers.ExponentiallyWeightedSmoother;
 import com.google.android.stardroid.util.smoothers.PlainSmootherModelAdaptor;
+import com.google.android.stardroid.util.smoothers.DirectRotationAdaptor;
+import com.google.android.stardroid.StardroidApplication;
 
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.SharedPreferences.OnSharedPreferenceChangeListener;
 import android.hardware.SensorListener;
 import android.hardware.SensorManager;
+import android.hardware.Sensor;
 import android.preference.PreferenceManager;
 import android.util.Log;
 
@@ -45,6 +48,8 @@ public class SensorOrientationController extends AbstractController
   private static final String SENSOR_DAMPING_HIGH = "HIGH";
   private static final String SENSOR_DAMPING_STANDARD = "STANDARD";
   private static final String SENSOR_DAMPING_PREF_KEY = "sensor_damping";
+  
+  private static final String FUSED_SENSOR_PREF_KEY = "fused_sensor";
 
   private static class SensorDampingSettings {
     public float damping;
@@ -72,19 +77,30 @@ public class SensorOrientationController extends AbstractController
   private SensorListener accelerometerSmoother;
   private SensorListener compassSmoother;
   private PlainSmootherModelAdaptor modelAdaptor;
+  private DirectRotationAdaptor drmodelAdaptor;
+  
+  private boolean usingNewSensors = false; 
+  private boolean sensorsRunning = false; 
 
   private SharedPreferences sharedPreferences;
 
   public SensorOrientationController(Context context) {
     manager = (SensorManager) context.getSystemService(Context.SENSOR_SERVICE);
     sharedPreferences = PreferenceManager.getDefaultSharedPreferences(context);
+    
+    if(manager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR) == null ||
+       manager.getDefaultSensor(Sensor.TYPE_GRAVITY) == null) {
+      sharedPreferences.edit().putBoolean(FUSED_SENSOR_PREF_KEY, false).commit();
+      StardroidApplication.setSupportsNewSensors(false);
+    } else {
+      StardroidApplication.setSupportsNewSensors(true);
+    }
+    
     sharedPreferences.registerOnSharedPreferenceChangeListener(this);
   }
 
   @Override
   public void start() {
-    modelAdaptor = new PlainSmootherModelAdaptor(model);
-
     Log.d(TAG, "Exponentially weighted smoothers used");
     String dampingPreference = sharedPreferences.getString(SENSOR_DAMPING_PREF_KEY,
         SENSOR_DAMPING_STANDARD);
@@ -102,36 +118,64 @@ public class SensorOrientationController extends AbstractController
     } else if (SENSOR_SPEED_HIGH.equals(speedPreference)) {
       sensorSpeed = SensorManager.SENSOR_DELAY_FASTEST;
     }
-    accelerometerSmoother = new ExponentiallyWeightedSmoother(
-        modelAdaptor,
-        ACC_DAMPING_SETTINGS[dampingIndex].damping,
-        ACC_DAMPING_SETTINGS[dampingIndex].exponent);
-    compassSmoother = new ExponentiallyWeightedSmoother(
-        modelAdaptor,
-        MAG_DAMPING_SETTINGS[dampingIndex].damping,
-        MAG_DAMPING_SETTINGS[dampingIndex].exponent);
-
-    if (manager != null) {
-      manager.registerListener(accelerometerSmoother,
-                               SensorManager.SENSOR_ACCELEROMETER,
-                               sensorSpeed);
-      manager.registerListener(compassSmoother,
-                               SensorManager.SENSOR_MAGNETIC_FIELD,
-                               sensorSpeed);
+    
+    usingNewSensors = sharedPreferences.getBoolean(FUSED_SENSOR_PREF_KEY, false);
+    
+    if(usingNewSensors) {
+      drmodelAdaptor = new DirectRotationAdaptor(model);
+      if (manager != null) {
+        manager.registerListener(drmodelAdaptor,
+                                 manager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR),
+                                 sensorSpeed);
+        manager.registerListener(drmodelAdaptor,
+                                 manager.getDefaultSensor(Sensor.TYPE_GRAVITY),
+                                 sensorSpeed);
+        sensorsRunning = true;
+      }
+      Log.d(TAG, "Registered sensor listener (new)");
+    } else {
+      modelAdaptor = new PlainSmootherModelAdaptor(model);
+      accelerometerSmoother = new ExponentiallyWeightedSmoother(
+          modelAdaptor,
+          ACC_DAMPING_SETTINGS[dampingIndex].damping,
+          ACC_DAMPING_SETTINGS[dampingIndex].exponent);
+      compassSmoother = new ExponentiallyWeightedSmoother(
+          modelAdaptor,
+          MAG_DAMPING_SETTINGS[dampingIndex].damping,
+          MAG_DAMPING_SETTINGS[dampingIndex].exponent);
+      
+      if (manager != null) {
+        manager.registerListener(accelerometerSmoother,
+                                 SensorManager.SENSOR_ACCELEROMETER,
+                                 sensorSpeed);
+        manager.registerListener(compassSmoother,
+                                 SensorManager.SENSOR_MAGNETIC_FIELD,
+                                 sensorSpeed);
+        sensorsRunning = true;
+      }
+      Log.d(TAG, "Registered sensor listener (old)");
     }
-    Log.d(TAG, "Registered sensor listener");
   }
 
   @Override
   public void stop() {
-    Log.d(TAG, "Unregistering sensor listeners");
-    manager.unregisterListener(accelerometerSmoother);
-    manager.unregisterListener(compassSmoother);
+    if(sensorsRunning) {
+      if(usingNewSensors) {
+        Log.d(TAG, "Unregistering sensor listeners (new)");
+        manager.unregisterListener(drmodelAdaptor);
+      } else {
+        Log.d(TAG, "Unregistering sensor listeners (old)");
+        manager.unregisterListener(accelerometerSmoother);
+        manager.unregisterListener(compassSmoother);
+      }
+      sensorsRunning = false;
+    }
   }
 
   @Override
   public void onSharedPreferenceChanged(SharedPreferences sharedPreferences, String key) {
-    if (SENSOR_DAMPING_PREF_KEY.equals(key) || SENSOR_SPEED_PREF_KEY.equals(key)) {
+    if (sensorsRunning && (SENSOR_DAMPING_PREF_KEY.equals(key) || SENSOR_SPEED_PREF_KEY.equals(key)
+        || FUSED_SENSOR_PREF_KEY.equals(key)) ) {
       Log.d(TAG, "User sensor preferences changed - restarting sensor controllers");
       stop();
       start();

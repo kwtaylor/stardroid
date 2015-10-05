@@ -65,6 +65,10 @@ public class StardroidApplication extends Application {
   private static AstronomerModel model;
   private static LayerManager layerManager;
   private static ExecutorService backgroundExecutor;
+  
+  // set by SensorOrientationController when it starts up
+  // checked by preferences screen to enable/disable Fused sensor option
+  private static boolean supportsNewSensors = false; 
 
   // We need to maintain references to this object to keep it from
   // getting gc'd.
@@ -202,6 +206,14 @@ public class StardroidApplication extends Application {
       model = new AstronomerModelImpl(new ZeroMagneticDeclinationCalculator());
     }
     return model;
+  }
+  
+  public static void setSupportsNewSensors(boolean supports) {
+    supportsNewSensors = supports;
+  }
+  
+  public static boolean getSupportsNewSensors() {
+    return supportsNewSensors;
   }
 
   /**

@@ -17,6 +17,7 @@ package com.google.android.stardroid.control;
 import com.google.android.stardroid.units.GeocentricCoordinates;
 import com.google.android.stardroid.units.LatLong;
 import com.google.android.stardroid.units.Vector3;
+import com.google.android.stardroid.units.Matrix33;
 
 import java.util.Date;
 
@@ -160,6 +161,8 @@ public interface AstronomerModel {
    * and z coming perpendicularly out of the phone increasing towards the user.
    */
   void setPhoneSensorValues(Vector3 acceleration, Vector3 magneticField);
+  void setPhoneRotationVector(Vector3 v);
+  void setPhoneGravity(Vector3 v);
 
   /**
    * Returns the user's North in celestial coordinates.

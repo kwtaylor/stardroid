@@ -95,6 +95,10 @@
             android:entryValues="@array/sensor_damping_values"
             android:entries="@array/sensor_damping"
             android:defaultValue="STANDARD" />
+        <CheckBoxPreference
+            android:defaultValue="true"
+            android:title="@string/use_fused_sensor"
+            android:key="fused_sensor"/>
       </PreferenceCategory>
     </PreferenceScreen>
     <CheckBoxPreference
